@@ -1,0 +1,13 @@
+[package]
+name = "agent_catcher"
+version = "0.1.0"
+authors = ["GenTech Labs <protojay4789@users.noreply.github.com>"]
+edition = "2024"
+
+[dependencies]
+
+[addresses]
+agent_catcher = "0x0"
+
+[envs]
+devnet = { chain = "sui:devnet" }
