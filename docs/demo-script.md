@@ -14,7 +14,7 @@
 
 (Pause. Screen goes dark.)
 
-> Agent Catcher scans any token in seconds — on-chain risk score, LLM-powered verdict, immutable record. No guesswork. No rugs.
+> Agent Catcher scans any token in seconds — on-chain risk score, weighted scoring engine, immutable record. No guesswork. No rugs.
 
 (Cut to title card: **Agent Catcher**)
 
@@ -72,15 +72,15 @@ sui move test
 (Terminal. Navigate to the monitor directory.)
 
 ```bash
-cd /root/vaults/gentech/02-Labs/Hackathons/Sui-Overflow/monitor
+cd agent
 python3 monitor.py --token 0x2::sui::SUI --simulate
 ```
 
-> Now watch the agent pipeline in action. The monitor script takes a token address, fetches risk data from GoPlus, runs it through the LLM classifier, and pushes the result on-chain — all in one command.
+> Watch the agent pipeline in action. The monitor script takes a token address, fetches risk data (simulated for Sui-native tokens), runs it through the weighted scoring engine, and outputs a full risk report.
 
-(Terminal shows the simulation output: risk flags, LLM verdict, transaction hash.)
+(Terminal shows the simulation output: risk flags, score, classification.)
 
-> GoPlus returns the raw risk signals. The LLM turns that into a clear verdict — safe, suspicious, or high-risk — with a confidence score. And it's committed on-chain in a single transaction.
+> The scoring engine evaluates 11 risk factors — honeypot status, hidden owners, self-destruct capability, liquidity risks — and produces a 0-100 safety score with a clear LOW / MEDIUM / HIGH / CRITICAL classification. In simulation mode, we get realistic test data. For EVM tokens, it pulls live data from GoPlus.
 
 ### Frontend Dashboard (1:40–2:00)
 
@@ -117,10 +117,10 @@ python3 monitor.py --token 0x2::sui::SUI --simulate
 (Arrow 1: Token address → GoPlus API)
 > **Agent 1 — The Fetcher.** Hits the GoPlus API, pulls raw security data for any token: honeypot status, owner privileges, LP locks, everything.
 
-(Arrow 2: Raw data → LLM)
-> **Agent 2 — The Classifier.** An LLM takes the raw signals and produces a structured risk assessment. It understands context — not just flag lists, but what they *mean* together.
+(Arrow 2: Raw data → Scoring Engine)
+> **Agent 2 — The Scoring Engine.** A weighted scoring algorithm takes the 11 raw risk signals and produces a structured risk assessment. Each factor has a configurable weight — honeypot detection is heaviest at 20%, while external calls are lighter at 5%. The result is a 0-100 safety score with a clear classification.
 
-(Arrow 3: LLM verdict → Sui Move contract)
+(Arrow 3: Risk score → Sui Move contract)
 > The verdict gets written on-chain as a **Sui object** — the `TokenAssessment` in our `Registry`.
 
 (Show the Move object model diagram.)
