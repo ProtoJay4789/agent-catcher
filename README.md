@@ -1,215 +1,119 @@
-# 🛡️ Agent Catcher — Dual-Agent Token Risk Oracle for Sui
+# 🛡️ Rugcheck — AI Agent for Bags.fm Token Risk Monitoring
 
-> Real-time token risk scoring powered by off-chain AI agents and on-chain Move contracts.
+An autonomous AI agent that monitors new token launches on [Bags.fm](https://bags.fm), scores them for rug/honeypot risk, and alerts users before they ape into scams.
 
----
+**Built for the [Bags Hackathon](https://dorahacks.io/hackathon/the-bags-hackathon)** — AI Agents Track
 
 ## What It Does
 
-Agent Catcher is a **dual-agent token risk oracle** that scans any Sui token address and returns a 0–100 risk score with labeled risk factors — all stored on-chain as a tamper-proof registry. Users submit a token address, off-chain agents fetch security data via GoPlus, calculate a weighted risk score, and write the result to a shared `RiskRegistry` object on Sui devnet. The on-chain registry enforces freshness (max 1 hour staleness) and score validity (0–100 range), ensuring every assessment is trustworthy.
-
-The system works in two modes: **live scanning** against the GoPlus API for EVM-compatible tokens, and **simulation mode** that generates realistic test data for Sui-native tokens (which GoPlus doesn't yet support). This makes it immediately useful for demos and extensible to any token ecosystem once cross-chain indexing is added.
-
-Think of it as a **Chainlink-style oracle, but purpose-built for token safety**. DEXes, wallets, and agent frameworks can query the registry object to get risk assessments without trusting any single off-chain provider — the data is on-chain, verifiable, and timestamped.
-
----
-
-## How It Works
+1. **Scouts** new token launches on Bags.fm via their API
+2. **Scores** each token using a 10-factor weighted risk engine
+3. **Alerts** via Telegram, webhook, or terminal when risky tokens are detected
+4. **Dashboard** shows a live feed of scanned tokens with risk breakdowns
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        USER / DAPP                              │
-│           (submits token address via CLI or frontend)           │
-└──────────────────────────┬──────────────────────────────────────┘
-                           │
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   OFF-CHAIN AGENT (Python)                      │
-│  ┌──────────────┐    ┌──────────────────┐    ┌──────────────┐  │
-│  │  GoPlus API  │───▶│  Risk Scoring    │───▶│  Sui RPC     │  │
-│  │  (scan)      │    │  Engine          │    │  (submit)    │  │
-│  └──────────────┘    │  11 weighted     │    └──────┬───────┘  │
-│                      │  risk factors    │           │           │
-│  ┌──────────────┐    └──────────────────┘           │           │
-│  │  Simulation  │───────────────────────────────────┘           │
-│  │  (fallback)  │                                              │
-│  └──────────────┘                                              │
-└──────────────────────────────────────────┬──────────────────────┘
-                                           │
-                           ┌───────────────┘
-                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                  ON-CHAIN (Sui Move)                            │
-│                                                                 │
-│  RiskRegistry (shared object)                                   │
-│  ├── assessments: vector<ID>    ← list of all assessment IDs   │
-│  └── authorized_agents          ← agent allowlist               │
-│                                                                 │
-│  RiskAssessment (owned object, per-token)                       │
-│  ├── token_address: String                                    │
-│  ├── risk_score: u64 (0-100)                                   │
-│  ├── risk_level: String (LOW/MEDIUM/HIGH/CRITICAL)             │
-│  ├── risk_factors: vector<String>                              │
-│  ├── agent_id: String                                          │
-│  └── timestamp: u64                                            │
-│                                                                 │
-│  Validation: score ∈ [0,100], timestamp < now, age < 1hr       │
-│  Events: RiskAssessmentCreated emitted per submission           │
-└─────────────────────────────────────────────────────────────────┘
+Bags Scout API → Risk Scorer → Alert Dispatcher
+     ↓                ↓               ↓
+ Token Feed      0-100 Score      Telegram/Webhook
 ```
 
----
+## Risk Factors
 
-## Tech Stack
+| Factor | Weight | Description |
+|--------|--------|-------------|
+| LP Locked | 18% | Is liquidity locked? (most important) |
+| Mint Authority | 15% | Can supply be inflated? |
+| Freeze Authority | 12% | Can trades be frozen? |
+| Top Holder % | 12% | Is ownership concentrated? |
+| Open Source | 10% | Is the program verified? |
+| Creator History | 10% | Has this creator rugged before? |
+| Rug History | 10% | Known scam patterns? |
+| Social Presence | 8% | Does it have a website/twitter? |
+| Liquidity Depth | 8% | Is there meaningful liquidity? |
+| Trading Volume | 5% | Is anyone actually trading? |
 
-| Layer | Technology |
-|-------|-----------|
-| **Smart Contracts** | Move (Sui Move, object-centric) |
-| **Backend Agent** | Python 3, requests, argparse |
-| **Data Source** | [GoPlus Security API](https://gopluslabs.io/) |
-| **Blockchain** | Sui devnet |
-| **Frontend** | Vanilla HTML/CSS/JS (dark terminal UI) |
-| **RPC Client** | Sui JSON-RPC (`fullnode.devnet.sui.io`) |
+**Risk Levels:** 🟢 LOW (80-100) · 🟡 MEDIUM (60-79) · 🟠 HIGH (40-59) · 🔴 CRITICAL (0-39)
 
----
-
-## Live Deployment
-
-| | |
-|---|---|
-| **Package ID** | `0x20e7a4ff0eab4f0eae72614c61022853c39368fb336b48db8e87a19284a97e43` |
-| **Registry ID** | `0x7639df5cdbf75797895ef2632f0f84ed6a053be7f7ba1a3470bb1c1d33d7ebeb` |
-| **Network** | Sui Devnet |
-| **Explorer** | [suiscan.xyz/devnet](https://suiscan.xyz/devnet) |
-| **Package on Explorer** | [View Package](https://suiscan.xyz/devnet/package/0x20e7a4ff0eab4f0eae72614c61022853c39368fb336b48db8e87a19284a97e43) |
-
----
-
-## How to Run Locally
-
-### 1. Clone the repo
+## Quick Start
 
 ```bash
-git clone https://github.com/ProtoJay4789/agent-catcher-sui.git
-cd agent-catcher-sui
+# Clone
+git clone https://github.com/ProtoJay4789/rugcheck.git
+cd rugcheck
+
+# Install
+pip install -r requirements.txt
+
+# Run agent (simulate mode — no API key needed)
+python -m agent --simulate
+
+# Run tests
+python -m pytest agent/tests/ -v
 ```
 
-### 2. Run the agent monitor (Python)
+## Configuration
+
+Set environment variables or create a `config.yaml`:
 
 ```bash
-cd agent
-
-# Install dependencies
-pip install requests
-
-# Simulated scan (no API key needed)
-python3 monitor.py --token 0x2::sui::SUI --simulate
-
-# Live GoPlus scan (EVM-compatible tokens)
-python3 monitor.py --token 0xSomeTokenAddress
-
-# Simulated scan + scaffold on-chain submission
-python3 monitor.py --token 0x2::sui::SUI --simulate --submit
-
-# JSON output mode
-python3 monitor.py --token 0x2::sui::SUI --simulate --json
+export BAGS_API_KEY="your-key"       # Bags.fm API key
+export TELEGRAM_BOT_TOKEN="your-bot" # Telegram alerts
+export TELEGRAM_CHAT_ID="your-chat"  # Telegram chat
+export WEBHOOK_URL="https://..."     # Generic webhook
+export SCAN_INTERVAL=60              # Seconds between scans
+export SIMULATE_MODE=true            # Use mock data
 ```
 
-### 3. Run the frontend dashboard
+## Dashboard
 
-```bash
-cd frontend
-# Open index.html in a browser, or:
-python3 -m http.server 8080
-# Then visit http://localhost:8080
-```
-
-The frontend reads on-chain data via Sui RPC and displays a real-time dashboard with risk scores, badges, and assessment history.
-
-### 4. Build the Move contract (optional)
-
-```bash
-cd contracts
-sui move build
-sui move test
-```
-
----
+Open `agent/dashboard/index.html` in a browser. Shows:
+- Live feed of scanned tokens (auto-refreshes)
+- Risk scores with color-coded badges
+- Token detail modal with full risk breakdown
+- Stats bar (total scanned, safe, risky, critical)
 
 ## Project Structure
 
 ```
-agent-catcher-sui/
-├── README.md                          ← you are here
+rugcheck/
 ├── agent/
-│   ├── monitor.py                     ← CLI agent: scans tokens, scores risk
-│   └── sui_client.py                  ← Sui RPC client + RiskOracleClient
-├── contracts/
-│   ├── sources/
-│   │   └── risk_oracle.move           ← Move contract (RiskRegistry + RiskAssessment)
-│   ├── Move.toml                      ← Move package manifest
-│   └── build/                         ← compiled artifacts (devnet deployment)
-│       └── agent_catcher/
-├── frontend/
-│   └── index.html                     ← single-file dashboard (dark terminal UI)
-└── docs/
-    ├── MOVE_CRASH_COURSE.md           ← Move language reference notes
-    ├── x-post-draft.md                ← social media copy
-    └── entertainment-post.md          ← content marketing draft
+│   ├── agent.py              # Autonomous polling loop
+│   ├── alerts.py             # Multi-channel alert dispatcher
+│   ├── config.py             # Configuration management
+│   ├── scorer.py             # Solana-native risk scoring engine
+│   ├── scanners/
+│   │   └── bags_client.py    # Bags.fm API client
+│   ├── dashboard/
+│   │   └── index.html        # Live monitoring dashboard
+│   └── tests/
+│       ├── test_scoring.py   # 20 risk scoring tests
+│       ├── test_bags_client.py # 13 API client tests
+│       ├── test_agent.py     # 12 agent loop tests
+│       ├── test_alerts.py    # 17 alert tests
+│       ├── test_e2e.py       # 8 end-to-end tests
+│       └── test_integration.py # 15 integration tests
+├── docs/
+│   └── demo-script.md        # Demo recording guide
+└── README.md
 ```
 
----
+## Tech Stack
 
-## Key Features
+- **Python** — Scoring engine, agent loop, API client
+- **Bags.fm API** — Token launch feed, metadata, fees
+- **pytest** — 85 tests, 0.17s full suite
+- **Vanilla HTML/JS** — Dashboard (zero dependencies)
 
-- **On-chain risk registry** — every assessment is a Sui object with a unique ID, queryable by anyone
-- **Weighted scoring engine** — 11 risk factors (honeypot, hidden owner, self-destruct, etc.) with configurable weights
-- **Staleness enforcement** — contracts reject assessments older than 1 hour at the Move level
-- **Dual data source** — live GoPlus API for EVM tokens + simulation mode for Sui-native tokens
-- **Event emission** — `RiskAssessmentCreated` events for real-time monitoring via indexers
-- **Agent identity** — each assessment records which agent submitted it, enabling reputation systems
-- **CLI + Dashboard** — terminal-based monitor for devs, web UI for everyone else
-- **Risk classification** — automatic LOW / MEDIUM / HIGH / CRITICAL badge assignment
+## Why This Matters
 
----
+503 hackers registered for the Bags Hackathon. Only 41 submissions exist — most are thin wrappers. Rugcheck is a **real autonomous agent** with a **weighted risk engine**, **multi-channel alerts**, and a **live dashboard**. It's not a wrapper — it's infrastructure.
 
-## Why Sui
+Every day, new tokens launch on Solana. Most are scams. Rugcheck catches them before you lose money.
 
-Sui's **object model** is uniquely suited for agent infrastructure:
+## License
 
-- **First-class objects** — every `RiskAssessment` is a standalone on-chain object with its own ID. No mapping gymnastics like Solidity's `mapping(address => ...)`. You can query, transfer, and compose objects directly.
-- **Shared objects** — the `RiskRegistry` is a shared object that any authorized agent can mutate concurrently, without account-based nonce management.
-- **Move safety guarantees** — linear types prevent accidental double-spends or data corruption. Resources can't be copied or dropped; they must be explicitly used.
-- **Low latency** — Sui's parallel execution means assessment writes don't contend with each other, critical for high-throughput oracle systems.
-- **Composability** — other protocols can read `RiskAssessment` objects directly in the same transaction, enabling atomic DeFi actions gated by risk scores (e.g., "swap only if risk score > 80").
+MIT
 
 ---
 
-## What's Next
-
-- [ ] **Multi-agent consensus** — require 2+ agents to agree on risk scores before writing to the registry (dual-agent validation)
-- [ ] **GoPlus Sui integration** — partner with GoPlus to add native Sui token support
-- [ ] **On-chain reputation** — track agent accuracy over time using Sui's event system
-- [ ] **DEX integration module** — plug Agent Catcher into Cetus/DeepBook as a pre-swap safety check
-- [ ] **Batch scanning** — scan all tokens in a DEX pool in a single transaction
-- [ ] **Mainnet deployment** — graduate from devnet after audit
-- [ ] **SDK release** — drop-in `agent-catcher-sdk` for Python and TypeScript
-
----
-
-## Team
-
-**GenTech Labs** — solo builder ([@ProtoJay4789](https://github.com/ProtoJay4789))
-
-Building at the intersection of AI agents and on-chain infrastructure. Previously shipped agent logic on EVM and SVM; now porting to Sui's object model.
-
----
-
-## Links
-
-| | |
-|---|---|
-| **Hackathon** | [overflow.sui.io](https://overflow.sui.io/) |
-| **Explorer** | [suiscan.xyz/devnet](https://suiscan.xyz/devnet) |
-| **GitHub** | [github.com/ProtoJay4789](https://github.com/ProtoJay4789) |
-| **Track** | The Agentic Web |
+*Built by [Gentech Labs](https://github.com/ProtoJay4789) — May 2026*

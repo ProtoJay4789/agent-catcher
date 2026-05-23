@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Unit tests for Agent Catcher risk scoring engine.
+Unit tests for Rugcheck v2 risk scoring engine.
 
 Tests cover:
-  - extract_risk_factors: parsing raw GoPlus data
-  - calculate_risk_score: weighted scoring logic
+  - extract_risk_factors: parsing Solana token info into boolean risk factors
+  - calculate_risk_score: weighted scoring logic with inverse factors
   - Classification thresholds: LOW / MEDIUM / HIGH / CRITICAL
   - Edge cases: empty data, all risky, all safe, inverse factors
+  - Solana-specific: mint authority, freeze authority, LP lock, holder concentration
 
 Run: python3 -m pytest agent/tests/test_scoring.py -v
 """
@@ -14,105 +15,130 @@ Run: python3 -m pytest agent/tests/test_scoring.py -v
 import sys
 import os
 import pytest
+import random
 
-# Add parent directory to path so we can import monitor
+# Add parent directory to path so we can import scorer
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from monitor import (
+from scorer import (
     extract_risk_factors,
     calculate_risk_score,
     RISK_WEIGHTS,
     RISK_THRESHOLDS,
-    simulate_goplus,
 )
 
 
 # ─── extract_risk_factors tests ─────────────────────────────────────────────
 
 class TestExtractRiskFactors:
-    """Tests for parsing raw GoPlus data into boolean risk factors."""
+    """Tests for parsing raw Solana token info into boolean risk factors."""
 
     def test_all_risky(self):
         raw = {
-            "is_honeypot": "1",
-            "is_open_source": "0",
-            "owner_change_balance": "1",
-            "can_take_back_liquidity": "1",
-            "hidden_owner": "1",
-            "selfdestruct": "1",
-            "external_call": "1",
-            "is_proxy": "1",
-            "malicious_behavior": "1",
-            "slippage_modifiable": "1",
-            "is_blacklisted": "1",
+            "has_mint_authority": True,
+            "has_freeze_authority": True,
+            "lp_locked": False,
+            "top_holder_pct": 0.85,
+            "is_open_source": False,
+            "has_social": False,
+            "creator_rug_count": 3,
+            "liquidity_usd": 200,
+            "volume_24h": 50,
         }
         factors = extract_risk_factors(raw)
-        assert factors["is_honeypot"] is True
+        assert factors["has_mint_authority"] is True
+        assert factors["has_freeze_authority"] is True
+        assert factors["lp_locked"] is False
+        assert factors["top_holder_concentration"] is True
         assert factors["is_open_source"] is False
-        assert factors["hidden_owner"] is True
-        assert factors["selfdestruct"] is True
-        assert factors["malicious_behavior"] is True
+        assert factors["has_social"] is False
+        assert factors["creator_history"] is True
+        assert factors["liquidity_depth"] is True
+        assert factors["trading_volume"] is True
+        assert factors["rug_history"] is True
 
     def test_all_safe(self):
         raw = {
-            "is_honeypot": "0",
-            "is_open_source": "1",
-            "owner_change_balance": "0",
-            "can_take_back_liquidity": "0",
-            "hidden_owner": "0",
-            "selfdestruct": "0",
-            "external_call": "0",
-            "is_proxy": "0",
-            "malicious_behavior": "0",
-            "slippage_modifiable": "0",
-            "is_blacklisted": "0",
+            "has_mint_authority": False,
+            "has_freeze_authority": False,
+            "lp_locked": True,
+            "top_holder_pct": 0.05,
+            "is_open_source": True,
+            "has_social": True,
+            "creator_rug_count": 0,
+            "liquidity_usd": 500_000,
+            "volume_24h": 1_200_000,
         }
         factors = extract_risk_factors(raw)
-        assert factors["is_honeypot"] is False
+        assert factors["has_mint_authority"] is False
+        assert factors["has_freeze_authority"] is False
+        assert factors["lp_locked"] is True
+        assert factors["top_holder_concentration"] is False
         assert factors["is_open_source"] is True
-        assert factors["hidden_owner"] is False
-        assert factors["selfdestruct"] is False
+        assert factors["has_social"] is True
+        assert factors["creator_history"] is False
+        assert factors["liquidity_depth"] is False
+        assert factors["trading_volume"] is False
+        assert factors["rug_history"] is False
 
-    def test_missing_keys_default_false(self):
-        """Missing keys should default to False (safe)."""
+    def test_missing_keys_default_safe(self):
+        """Missing keys should default to False (or safe-ish for most factors).
+        Note: missing liquidity_usd/volume_24h default to 0, which triggers
+        low-liquidity and no-volume flags."""
         raw = {}
         factors = extract_risk_factors(raw)
-        for key in RISK_WEIGHTS:
-            assert factors[key] is False
+        # Most factors should be False
+        assert factors["has_mint_authority"] is False
+        assert factors["has_freeze_authority"] is False
+        assert factors["is_open_source"] is False
+        assert factors["has_social"] is False
+        assert factors["creator_history"] is False
+        assert factors["rug_history"] is False
+        # liquidity_depth and trading_volume trigger on 0 values
+        assert factors["liquidity_depth"] is True  # 0 < 1000
+        assert factors["trading_volume"] is True    # 0 < 100
 
     def test_numeric_strings(self):
-        """GoPlus returns '1'/'0' as strings."""
-        raw = {"is_honeypot": "1", "is_open_source": "0"}
+        """Bags API might return string values."""
+        raw = {
+            "has_mint_authority": "1",
+            "has_freeze_authority": "0",
+            "lp_locked": "true",
+            "top_holder_pct": "0.6",
+            "creator_rug_count": "2",
+            "liquidity_usd": "500",
+            "volume_24h": "50",
+        }
         factors = extract_risk_factors(raw)
-        assert factors["is_honeypot"] is True
-        assert factors["is_open_source"] is False
-
-    def test_numeric_ints(self):
-        """Some providers might return ints."""
-        raw = {"is_honeypot": 1, "is_open_source": 0}
-        factors = extract_risk_factors(raw)
-        assert factors["is_honeypot"] is True
-        assert factors["is_open_source"] is False
+        assert factors["has_mint_authority"] is True
+        assert factors["has_freeze_authority"] is False
+        assert factors["lp_locked"] is True
+        assert factors["top_holder_concentration"] is True
+        assert factors["creator_history"] is True
+        assert factors["liquidity_depth"] is True
+        assert factors["trading_volume"] is True
+        assert factors["rug_history"] is True
 
     def test_mixed_risk(self):
         """Partial risk flags."""
         raw = {
-            "is_honeypot": "1",
-            "is_open_source": "0",
-            "owner_change_balance": "0",
-            "can_take_back_liquidity": "0",
-            "hidden_owner": "1",
-            "selfdestruct": "0",
-            "external_call": "0",
-            "is_proxy": "0",
-            "malicious_behavior": "0",
-            "slippage_modifiable": "0",
-            "is_blacklisted": "0",
+            "has_mint_authority": True,
+            "has_freeze_authority": False,
+            "lp_locked": False,
+            "top_holder_pct": 0.35,
+            "is_open_source": False,
+            "has_social": True,
+            "creator_rug_count": 1,
+            "liquidity_usd": 15_000,
+            "volume_24h": 8_000,
         }
         factors = extract_risk_factors(raw)
-        assert factors["is_honeypot"] is True
-        assert factors["hidden_owner"] is True
+        assert factors["has_mint_authority"] is True
+        assert factors["lp_locked"] is False
+        assert factors["top_holder_concentration"] is False  # 35% < 50%
         assert factors["is_open_source"] is False
-        assert factors["selfdestruct"] is False
+        assert factors["has_social"] is True
+        assert factors["creator_history"] is True  # 1 rug
+        assert factors["rug_history"] is False  # only 1 rug, not >1
 
 
 # ─── calculate_risk_score tests ─────────────────────────────────────────────
@@ -122,8 +148,18 @@ class TestCalculateRiskScore:
 
     def test_perfect_score(self):
         """All safe → score 100, level LOW."""
-        factors = {k: False for k in RISK_WEIGHTS}
-        factors["is_open_source"] = True  # open source is GOOD
+        factors = {
+            "has_mint_authority": False,
+            "has_freeze_authority": False,
+            "lp_locked": True,
+            "top_holder_concentration": False,
+            "is_open_source": True,
+            "has_social": True,
+            "creator_history": False,
+            "liquidity_depth": False,
+            "trading_volume": False,
+            "rug_history": False,
+        }
         score, penalty, level = calculate_risk_score(factors)
         assert score == 100
         assert level == "LOW"
@@ -131,30 +167,59 @@ class TestCalculateRiskScore:
 
     def test_worst_score(self):
         """All risky → score 0, level CRITICAL."""
-        factors = {k: True for k in RISK_WEIGHTS}
-        factors["is_open_source"] = False  # closed source = bad
+        factors = {
+            "has_mint_authority": True,
+            "has_freeze_authority": True,
+            "lp_locked": False,
+            "top_holder_concentration": True,
+            "is_open_source": False,
+            "has_social": False,
+            "creator_history": True,
+            "liquidity_depth": True,
+            "trading_volume": True,
+            "rug_history": True,
+        }
         score, penalty, level = calculate_risk_score(factors)
         assert score == 0
         assert level == "CRITICAL"
         assert penalty >= 0.95
 
-    def test_honeypot_heavy_weight(self):
-        """Honeypot alone should push score into HIGH/CRITICAL."""
-        factors = {k: False for k in RISK_WEIGHTS}
-        factors["is_open_source"] = True
-        factors["is_honeypot"] = True
+    def test_lp_lock_heavy_weight(self):
+        """No LP lock alone should push score into MEDIUM range (weight 0.18)."""
+        factors = {
+            "has_mint_authority": False,
+            "has_freeze_authority": False,
+            "lp_locked": False,  # Not locked = risky
+            "top_holder_concentration": False,
+            "is_open_source": True,
+            "has_social": True,
+            "creator_history": False,
+            "liquidity_depth": False,
+            "trading_volume": False,
+            "rug_history": False,
+        }
         score, penalty, level = calculate_risk_score(factors)
-        # honeypot weight is 0.20, so score should drop by ~20
-        assert 75 <= score <= 85
+        # lp_locked weight is 0.18, so score drops by ~18
+        assert 78 <= score <= 85
         assert level in ("LOW", "MEDIUM")
 
     def test_closed_source_penalty(self):
         """Not open source should penalize."""
-        factors_safe = {k: False for k in RISK_WEIGHTS}
-        factors_safe["is_open_source"] = True
+        factors_safe = {
+            "has_mint_authority": False,
+            "has_freeze_authority": False,
+            "lp_locked": True,
+            "top_holder_concentration": False,
+            "is_open_source": True,
+            "has_social": True,
+            "creator_history": False,
+            "liquidity_depth": False,
+            "trading_volume": False,
+            "rug_history": False,
+        }
         _, penalty_safe, _ = calculate_risk_score(factors_safe)
 
-        factors_closed = {k: False for k in RISK_WEIGHTS}
+        factors_closed = dict(factors_safe)
         factors_closed["is_open_source"] = False
         _, penalty_closed, _ = calculate_risk_score(factors_closed)
 
@@ -162,9 +227,19 @@ class TestCalculateRiskScore:
 
     def test_score_bounds(self):
         """Score should always be between 0 and 100."""
-        import random
         for _ in range(50):
-            factors = {k: random.choice([True, False]) for k in RISK_WEIGHTS}
+            factors = {
+                "has_mint_authority": random.choice([True, False]),
+                "has_freeze_authority": random.choice([True, False]),
+                "lp_locked": random.choice([True, False]),
+                "top_holder_concentration": random.choice([True, False]),
+                "is_open_source": random.choice([True, False]),
+                "has_social": random.choice([True, False]),
+                "creator_history": random.choice([True, False]),
+                "liquidity_depth": random.choice([True, False]),
+                "trading_volume": random.choice([True, False]),
+                "rug_history": random.choice([True, False]),
+            }
             score, _, _ = calculate_risk_score(factors)
             assert 0 <= score <= 100
 
@@ -172,65 +247,65 @@ class TestCalculateRiskScore:
         """Verify all levels are reachable."""
         levels_found = set()
         for _ in range(200):
-            import random
-            factors = {k: random.choice([True, False]) for k in RISK_WEIGHTS}
+            factors = {
+                "has_mint_authority": random.choice([True, False]),
+                "has_freeze_authority": random.choice([True, False]),
+                "lp_locked": random.choice([True, False]),
+                "top_holder_concentration": random.choice([True, False]),
+                "is_open_source": random.choice([True, False]),
+                "has_social": random.choice([True, False]),
+                "creator_history": random.choice([True, False]),
+                "liquidity_depth": random.choice([True, False]),
+                "trading_volume": random.choice([True, False]),
+                "rug_history": random.choice([True, False]),
+            }
             _, _, level = calculate_risk_score(factors)
             levels_found.add(level)
-        # We should see at least LOW and CRITICAL in 200 random samples
         assert "LOW" in levels_found
         assert "CRITICAL" in levels_found
 
     def test_known_dangerous_combo(self):
-        """Honeypot + can_take_liquidity + hidden_owner + selfdestruct."""
-        factors = {k: False for k in RISK_WEIGHTS}
-        factors["is_open_source"] = True  # even with open source...
-        factors["is_honeypot"] = True
-        factors["can_take_back_liquidity"] = True
-        factors["hidden_owner"] = True
-        factors["selfdestruct"] = True
+        """Mint authority + freeze + no LP lock + high concentration."""
+        factors = {
+            "has_mint_authority": True,    # 0.15
+            "has_freeze_authority": True,  # 0.12
+            "lp_locked": False,            # 0.18 (inverse)
+            "top_holder_concentration": True,  # 0.12
+            "is_open_source": False,       # 0.10 (inverse)
+            "has_social": True,            # safe
+            "creator_history": False,      # safe
+            "liquidity_depth": False,      # safe
+            "trading_volume": False,       # safe
+            "rug_history": False,          # safe
+        }
+        # Total penalty: 0.15 + 0.12 + 0.18 + 0.12 + 0.10 = 0.67
         score, _, level = calculate_risk_score(factors)
-        # These 4 flags total ~0.50 weight → score ~50
-        assert 45 <= score <= 60
-        assert level in ("MEDIUM", "HIGH", "CRITICAL")
+        assert 30 <= score <= 40
+        assert level in ("HIGH", "CRITICAL")
 
+    def test_inverse_factor_logic(self):
+        """Inverse factors: True=safe, False=risky."""
+        # LP locked (True) should NOT penalize
+        factors_locked = {
+            "has_mint_authority": False,
+            "has_freeze_authority": False,
+            "lp_locked": True,
+            "top_holder_concentration": False,
+            "is_open_source": False,
+            "has_social": False,
+            "creator_history": False,
+            "liquidity_depth": False,
+            "trading_volume": False,
+            "rug_history": False,
+        }
+        _, penalty_locked, _ = calculate_risk_score(factors_locked)
 
-# ─── simulate_goplus tests ──────────────────────────────────────────────────
+        # LP NOT locked (False) SHOULD penalize
+        factors_unlocked = dict(factors_locked)
+        factors_unlocked["lp_locked"] = False
+        _, penalty_unlocked, _ = calculate_risk_score(factors_unlocked)
 
-class TestSimulateGoPlus:
-    """Tests for the simulation data generator."""
-
-    def test_returns_dict(self):
-        data = simulate_goplus("0x2::sui::SUI")
-        assert isinstance(data, dict)
-
-    def test_has_required_keys(self):
-        data = simulate_goplus("0xtest")
-        required = [
-            "is_honeypot", "is_open_source", "owner_change_balance",
-            "can_take_back_liquidity", "hidden_owner", "selfdestruct",
-            "malicious_behavior", "token_name", "token_symbol",
-        ]
-        for key in required:
-            assert key in data, f"Missing key: {key}"
-
-    def test_all_scenarios_produce_valid_data(self):
-        """Run simulation many times — all should produce parseable data."""
-        import random
-        for _ in range(100):
-            data = simulate_goplus("0xtoken")
-            factors = extract_risk_factors(data)
-            score, _, level = calculate_risk_score(factors)
-            assert 0 <= score <= 100
-            assert level in ("LOW", "MEDIUM", "HIGH", "CRITICAL")
-
-    def test_deterministic_with_seed(self):
-        """Same seed should produce same scenario."""
-        import random
-        random.seed(42)
-        data1 = simulate_goplus("0xtoken")
-        random.seed(42)
-        data2 = simulate_goplus("0xtoken")
-        assert data1["token_name"] == data2["token_name"]
+        assert penalty_unlocked > penalty_locked
 
 
 # ─── Edge case tests ────────────────────────────────────────────────────────
@@ -238,12 +313,13 @@ class TestSimulateGoPlus:
 class TestEdgeCases:
     """Edge cases and regression tests."""
 
-    def test_empty_raw_data(self):
-        """Empty dict should produce all-False factors."""
-        factors = extract_risk_factors({})
+    def test_empty_factors(self):
+        """Empty dict should produce moderate score (inverse factors penalize)."""
+        factors = {}
         score, penalty, level = calculate_risk_score(factors)
-        # No risky flags → score should be decent but closed source penalizes
-        assert 85 <= score <= 100
+        # Inverse factors (lp_locked, is_open_source, has_social) default to False
+        # so they penalize: 0.18 + 0.10 + 0.08 = 0.36 → score ~64
+        assert 60 <= score <= 70
 
     def test_risk_weights_sum_to_one(self):
         """Weights should sum to 1.0 (or close)."""
@@ -252,15 +328,25 @@ class TestEdgeCases:
 
     def test_score_decreases_with_more_flags(self):
         """More risk flags should generally mean lower score."""
-        base = {k: False for k in RISK_WEIGHTS}
-        base["is_open_source"] = True
+        base = {
+            "has_mint_authority": False,
+            "has_freeze_authority": False,
+            "lp_locked": True,
+            "top_holder_concentration": False,
+            "is_open_source": True,
+            "has_social": True,
+            "creator_history": False,
+            "liquidity_depth": False,
+            "trading_volume": False,
+            "rug_history": False,
+        }
         score_base, _, _ = calculate_risk_score(base)
 
-        added = {k: False for k in RISK_WEIGHTS}
-        added["is_open_source"] = True
-        added["is_honeypot"] = True
-        added["hidden_owner"] = True
-        added["selfdestruct"] = True
+        added = dict(base)
+        added["has_mint_authority"] = True
+        added["has_freeze_authority"] = True
+        added["lp_locked"] = False
+        added["top_holder_concentration"] = True
         score_added, _, _ = calculate_risk_score(added)
 
         assert score_added < score_base

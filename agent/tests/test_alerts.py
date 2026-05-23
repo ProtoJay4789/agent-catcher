@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Unit tests for Agent Catcher alert system.
+Unit tests for Rugcheck v2 alert system.
 
 Tests cover:
   - Alert formatting (text + JSON)
@@ -36,47 +36,48 @@ from alerts import (
 
 class TestFormatAlertText:
     def test_critical_alert_format(self):
-        factors = {"is_honeypot": True, "is_open_source": False, "hidden_owner": True}
-        text = format_alert_text("0xdead", 15, "CRITICAL", factors)
+        factors = {"has_mint_authority": True, "is_open_source": False, "has_freeze_authority": True}
+        text = format_alert_text("7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr", 15, "CRITICAL", factors)
         assert "🔴" in text
         assert "CRITICAL" in text
-        assert "0xdead" in text
+        assert "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr" in text
         assert "15/100" in text
-        assert "is_honeypot" in text
+        assert "has_mint_authority" in text
 
     def test_high_alert_format(self):
-        factors = {"is_honeypot": False, "is_open_source": False, "selfdestruct": True}
-        text = format_alert_text("0xabc", 45, "HIGH", factors)
+        factors = {"has_mint_authority": False, "is_open_source": False, "lp_locked": False}
+        text = format_alert_text("abc123", 45, "HIGH", factors)
         assert "🟠" in text
         assert "HIGH" in text
 
     def test_closed_source_flagged(self):
-        factors = {"is_open_source": False, "is_honeypot": False}
-        text = format_alert_text("0xtoken", 60, "HIGH", factors)
+        factors = {"is_open_source": False, "has_mint_authority": False}
+        text = format_alert_text("token123", 60, "HIGH", factors)
         assert "closed_source" in text
 
     def test_no_risk_flags(self):
-        factors = {"is_open_source": True, "is_honeypot": False}
-        text = format_alert_text("0xsafe", 95, "LOW", factors)
+        factors = {"is_open_source": True, "has_mint_authority": False}
+        text = format_alert_text("safe123", 95, "LOW", factors)
         assert "none" in text.lower()
 
 
 class TestFormatAlertJson:
     def test_json_structure(self):
-        factors = {"is_honeypot": True, "is_open_source": False}
-        payload = format_alert_json("0xdead", 20, "CRITICAL", factors)
+        factors = {"has_mint_authority": True, "is_open_source": False}
+        payload = format_alert_json("7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr", 20, "CRITICAL", factors)
         assert payload["alert"] is True
-        assert payload["token_address"] == "0xdead"
+        assert payload["token_address"] == "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr"
         assert payload["score"] == 20
         assert payload["level"] == "CRITICAL"
         assert "timestamp" in payload
         assert "timestamp_iso" in payload
 
     def test_risk_flags_extraction(self):
-        factors = {"is_honeypot": True, "is_open_source": True, "selfdestruct": True}
-        payload = format_alert_json("0xtoken", 50, "HIGH", factors)
-        assert "is_honeypot" in payload["risk_flags"]
-        assert "selfdestruct" in payload["risk_flags"]
+        factors = {"has_mint_authority": True, "is_open_source": True, "lp_locked": False}
+        payload = format_alert_json("token123", 50, "HIGH", factors)
+        assert "has_mint_authority" in payload["risk_flags"]
+        # lp_locked is False — the formatter includes it since it's True in factors dict
+        # but is_open_source=True is excluded because it's the special inverse key
         assert "is_open_source" not in payload["risk_flags"]  # True = safe
 
 
@@ -187,32 +188,32 @@ class TestTelegramAlert:
 class TestAlertDispatcher:
     def test_sends_terminal_only(self, capsys):
         d = AlertDispatcher()
-        results = d.send("0xdead", 10, "CRITICAL", {"is_honeypot": True})
+        results = d.send("7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr", 10, "CRITICAL", {"has_mint_authority": True})
         assert len(results) == 1
         assert results[0]["channel"] == "terminal"
         assert results[0]["success"] is True
 
     def test_no_send_for_low(self):
         d = AlertDispatcher()
-        results = d.send("0xsafe", 90, "LOW", {})
+        results = d.send("safetoken", 90, "LOW", {})
         assert len(results) == 0
 
     def test_force_send(self):
         d = AlertDispatcher()
-        results = d.send("0xsafe", 90, "LOW", {}, force=True)
+        results = d.send("safetoken", 90, "LOW", {}, force=True)
         assert len(results) == 1  # forced through
 
     def test_alerts_logged(self):
         d = AlertDispatcher()
-        d.send("0xdead", 10, "CRITICAL", {"is_honeypot": True})
+        d.send("7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr", 10, "CRITICAL", {"has_mint_authority": True})
         assert len(d.last_alerts) == 1
-        assert d.last_alerts[0]["token"] == "0xdead"
+        assert d.last_alerts[0]["token"] == "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr"
 
     def test_multiple_dispatches(self):
         d = AlertDispatcher()
-        d.send("0xtoken1", 10, "CRITICAL", {})
-        d.send("0xtoken2", 45, "HIGH", {})
-        d.send("0xtoken3", 80, "LOW", {})  # should NOT dispatch
+        d.send("token1", 10, "CRITICAL", {})
+        d.send("token2", 45, "HIGH", {})
+        d.send("token3", 80, "LOW", {})  # should NOT dispatch
         assert len(d.last_alerts) == 2
 
 

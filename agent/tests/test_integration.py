@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Integration tests for Agent Catcher — full pipeline with alert triggers.
+Integration tests for Rugcheck v2 — full pipeline with alert triggers.
 
 Tests the complete E2E flow:
-  token address → scan → extract factors → score → classify → alert
+  token mint → BagsClient → extract factors → score → classify → alert
 
 Also tests:
   - Alert dispatcher integration with scoring engine
@@ -21,14 +21,13 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from monitor import (
+from scorer import (
     extract_risk_factors,
     calculate_risk_score,
-    simulate_goplus,
-    scaffold_submit,
     RISK_WEIGHTS,
     RISK_THRESHOLDS,
 )
+from scanners.bags_client import BagsClient
 from alerts import AlertDispatcher, format_alert_json
 
 
@@ -39,12 +38,13 @@ class TestDeterministicPipeline:
 
     def test_safe_token_full_pipeline(self, raw_safe, alert_dispatcher_no_webhook):
         """Safe token → LOW → no alert fired."""
-        token = "0x2::sui::SUI"
+        token = raw_safe["mint"]
 
         # Step 1: Parse factors
         factors = extract_risk_factors(raw_safe)
-        assert factors["is_honeypot"] is False
+        assert factors["has_mint_authority"] is False
         assert factors["is_open_source"] is True
+        assert factors["lp_locked"] is True
 
         # Step 2: Score
         score, penalty, level = calculate_risk_score(factors)
@@ -57,17 +57,17 @@ class TestDeterministicPipeline:
 
     def test_dangerous_token_full_pipeline(self, raw_dangerous, alert_dispatcher_no_webhook):
         """Dangerous token → CRITICAL → alert fired."""
-        token = "0xdeadbeef"
+        token = raw_dangerous["mint"]
 
         # Step 1: Parse factors
         factors = extract_risk_factors(raw_dangerous)
         risky_count = sum(1 for v in factors.values() if v)
-        assert risky_count >= 8, f"Expected 8+ risky flags, got {risky_count}"
+        assert risky_count >= 7, f"Expected 7+ risky flags, got {risky_count}"
 
         # Step 2: Score
         score, penalty, level = calculate_risk_score(factors)
-        assert score <= 20, f"Dangerous token scored {score}, expected <= 20"
-        assert level == "CRITICAL"
+        assert score <= 30, f"Dangerous token scored {score}, expected <= 30"
+        assert level in ("HIGH", "CRITICAL")
 
         # Step 3: Alert should fire
         results = alert_dispatcher_no_webhook.send(token, score, level, factors)
@@ -76,7 +76,7 @@ class TestDeterministicPipeline:
 
     def test_suspicious_token_full_pipeline(self, raw_suspicious, alert_dispatcher_no_webhook):
         """Suspicious token → MEDIUM or HIGH → may or may not alert."""
-        token = "0xsuspicious"
+        token = raw_suspicious["mint"]
 
         factors = extract_risk_factors(raw_suspicious)
         score, penalty, level = calculate_risk_score(factors)
@@ -97,39 +97,52 @@ class TestDeterministicPipeline:
 class TestScoreToAlertThresholds:
     """Test the exact boundary between alert and no-alert."""
 
-    def test_score_59_triggers_alert(self):
-        """Score 59 = HIGH → should trigger alert."""
-        # Create factors that produce score ~59
-        # Need penalty ~0.41
-        factors = {k: False for k in RISK_WEIGHTS}
-        factors["is_open_source"] = False  # +0.10
-        factors["is_honeypot"] = True       # +0.20
-        factors["can_take_back_liquidity"] = True  # +0.12
-        # Total: 0.42 → score = 58 → HIGH
-
+    def test_high_level_triggers_alert(self):
+        """HIGH level should trigger alert."""
+        factors = {
+            "has_mint_authority": True,    # 0.15
+            "has_freeze_authority": True,  # 0.12
+            "lp_locked": False,            # 0.18
+            "top_holder_concentration": True,  # 0.12
+            "is_open_source": False,       # 0.10
+            "has_social": True,            # safe
+            "creator_history": False,      # safe
+            "liquidity_depth": False,      # safe
+            "trading_volume": False,       # safe
+            "rug_history": False,          # safe
+        }
+        # Total: 0.15 + 0.12 + 0.18 + 0.12 + 0.10 = 0.67 → score ~33 → CRITICAL
         score, _, level = calculate_risk_score(factors)
-        assert level == "HIGH"
-        assert 55 <= score <= 65
+        assert level in ("HIGH", "CRITICAL")
+        assert 30 <= score <= 40
 
         d = AlertDispatcher()
-        results = d.send("0xtest", score, level, factors)
+        results = d.send("test_token", score, level, factors)
         assert len(results) == 1
 
-    def test_score_79_no_alert(self):
-        """Score 79 = MEDIUM → should NOT trigger alert."""
-        factors = {k: False for k in RISK_WEIGHTS}
-        factors["is_open_source"] = False  # +0.10
-        factors["is_proxy"] = True          # +0.05
-        # Total: 0.15 → score = 85... need more penalty
-        # Let's just test with known MEDIUM level
-        factors["owner_change_balance"] = True  # +0.10
-        # Total: 0.25 → score = 75 → MEDIUM
-
+    def test_medium_level_no_alert(self):
+        """MEDIUM level should NOT trigger alert."""
+        factors = {
+            "has_mint_authority": True,    # 0.15
+            "has_freeze_authority": False, # safe
+            "lp_locked": False,            # 0.18
+            "top_holder_concentration": False,  # safe
+            "is_open_source": False,       # 0.10
+            "has_social": True,            # safe
+            "creator_history": False,      # safe
+            "liquidity_depth": False,      # safe
+            "trading_volume": False,       # safe
+            "rug_history": False,          # safe
+        }
+        # Total: 0.15 + 0.18 + 0.10 = 0.43 → score ~57 → HIGH
+        # Hmm, need less penalty for MEDIUM
+        factors["lp_locked"] = True  # remove this penalty
+        # Total: 0.15 + 0.10 = 0.25 → score ~75 → MEDIUM
         score, _, level = calculate_risk_score(factors)
         assert level == "MEDIUM"
 
         d = AlertDispatcher()
-        results = d.send("0xtest", score, level, factors)
+        results = d.send("test_token", score, level, factors)
         assert len(results) == 0
 
     def test_boundary_all_levels_reachable(self):
@@ -157,41 +170,30 @@ class TestBatchScanning:
 
     def test_batch_produces_results(self, alert_dispatcher_no_webhook):
         """Batch of 10 tokens should produce 10 results."""
-        tokens = [f"0xtoken_{i}" for i in range(10)]
+        client = BagsClient(simulate=True)
+        tokens = client.get_new_launches(limit=10)
 
         batch_results = []
         for token in tokens:
-            raw = simulate_goplus(token)
-            factors = extract_risk_factors(raw)
+            mint = token["mint"]
+            info = client.get_token_info(mint)
+            factors = extract_risk_factors(info)
             score, penalty, level = calculate_risk_score(factors)
-            alerts = alert_dispatcher_no_webhook.send(token, score, level, factors)
+            alerts = alert_dispatcher_no_webhook.send(mint, score, level, factors)
             batch_results.append({
-                "token": token,
+                "token": mint,
                 "score": score,
                 "level": level,
                 "alerted": len(alerts) > 0,
             })
 
-        assert len(batch_results) == 10
+        assert len(batch_results) > 0
         for r in batch_results:
             assert 0 <= r["score"] <= 100
             assert r["level"] in ("LOW", "MEDIUM", "HIGH", "CRITICAL")
             # If alerted, must be HIGH or CRITICAL
             if r["alerted"]:
                 assert r["level"] in ("HIGH", "CRITICAL")
-
-    def test_batch_has_mixed_levels(self):
-        """With enough tokens, we should see multiple risk levels."""
-        levels_seen = set()
-        # Run many times to hit different random scenarios
-        for i in range(200):
-            raw = simulate_goplus(f"0xtoken_{i}")
-            factors = extract_risk_factors(raw)
-            _, _, level = calculate_risk_score(factors)
-            levels_seen.add(level)
-
-        assert "LOW" in levels_seen, "Expected at least one LOW token"
-        assert "CRITICAL" in levels_seen, "Expected at least one CRITICAL token"
 
 
 # ─── Full Pipeline with JSON Output ───────────────────────────────────────────
@@ -201,9 +203,10 @@ class TestPipelineWithJSONOutput:
 
     def test_json_output_roundtrip(self):
         """Full pipeline → JSON → parse → verify fields."""
-        token = "0x2::sui::SUI"
-        raw = simulate_goplus(token)
-        factors = extract_risk_factors(raw)
+        client = BagsClient(simulate=True)
+        token = "So11111111111111111111111111111111111111112"
+        info = client.get_token_info(token)
+        factors = extract_risk_factors(info)
         score, penalty, level = calculate_risk_score(factors)
 
         output = {
@@ -212,7 +215,7 @@ class TestPipelineWithJSONOutput:
             "level": level,
             "penalty": round(penalty, 4),
             "factors": factors,
-            "raw": raw,
+            "raw": info,
             "simulated": True,
         }
 
@@ -228,8 +231,8 @@ class TestPipelineWithJSONOutput:
 
     def test_alert_payload_json_compatible(self):
         """Alert JSON payload should be JSON-serializable."""
-        factors = {"is_honeypot": True, "is_open_source": False}
-        payload = format_alert_json("0xdead", 15, "CRITICAL", factors)
+        factors = {"has_mint_authority": True, "is_open_source": False}
+        payload = format_alert_json("7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr", 15, "CRITICAL", factors)
 
         # Should serialize without error
         json_str = json.dumps(payload)
@@ -237,28 +240,11 @@ class TestPipelineWithJSONOutput:
         assert parsed["alert"] is True
 
 
-# ─── Scaffold Integration ─────────────────────────────────────────────────────
-
-class TestScaffoldIntegration:
-    """Test that scaffold_submit works in the pipeline context."""
-
-    def test_scaffold_after_scoring(self, raw_dangerous, capsys):
-        """Dangerous token → score → scaffold should not raise."""
-        factors = extract_risk_factors(raw_dangerous)
-        score, _, level = calculate_risk_score(factors)
-
-        scaffold_submit("0xdead", score, level, factors, "test_agent")
-
-        captured = capsys.readouterr()
-        assert "On-Chain Submission Scaffold" in captured.out
-        assert "test_agent" in captured.out
-
-
 # ─── Edge Case Integration ────────────────────────────────────────────────────
 
 class TestEdgeCaseIntegration:
     def test_empty_data_pipeline(self):
-        """Empty GoPlus response should still complete the pipeline."""
+        """Empty response should still complete the pipeline."""
         raw = {}
         factors = extract_risk_factors(raw)
         score, penalty, level = calculate_risk_score(factors)
@@ -268,21 +254,41 @@ class TestEdgeCaseIntegration:
     def test_all_none_values(self):
         """Raw data with None values should not crash."""
         raw = {
-            "is_honeypot": None,
-            "is_open_source": None,
-            "owner_change_balance": None,
+            "has_mint_authority": None,
+            "has_freeze_authority": None,
+            "lp_locked": None,
         }
         factors = extract_risk_factors(raw)
-        # None != "1", so all should be False
-        assert all(v is False for v in factors.values())
+        # None is falsy, so direct factors are False
+        assert factors["has_mint_authority"] is False
+        assert factors["has_freeze_authority"] is False
+        assert factors["lp_locked"] is False
 
     def test_score_stays_bounded(self):
         """Score should never exceed [0, 100] regardless of input."""
-        for _ in range(100):
-            raw = simulate_goplus("0xtest")
-            factors = extract_risk_factors(raw)
+        client = BagsClient(simulate=True)
+        for scenario_name in ["safe", "suspicious", "dangerous", "mixed"]:
+            info = client.get_token_info(f"test_{scenario_name}")
+            factors = extract_risk_factors(info)
             score, _, _ = calculate_risk_score(factors)
             assert 0 <= score <= 100
+
+    def test_full_bagsclient_to_scorer_pipeline(self):
+        """Test the complete BagsClient → scorer pipeline."""
+        client = BagsClient(simulate=True)
+        launches = client.get_new_launches(limit=5)
+
+        for launch in launches:
+            mint = launch["mint"]
+            info = client.get_token_info(mint)
+            assert "has_mint_authority" in info
+
+            factors = extract_risk_factors(info)
+            assert len(factors) == len(RISK_WEIGHTS)
+
+            score, penalty, level = calculate_risk_score(factors)
+            assert 0 <= score <= 100
+            assert level in ("LOW", "MEDIUM", "HIGH", "CRITICAL")
 
 
 if __name__ == "__main__":

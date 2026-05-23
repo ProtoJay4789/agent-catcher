@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Agent Catcher — Alert System
+Rugcheck v2 — Alert System
 ============================
 Dispatches risk alerts via multiple channels:
   - Terminal (stdout, always enabled)
@@ -29,7 +29,7 @@ ALERT_LEVELS = {"HIGH", "CRITICAL"}
 # ─── Alert Formatter ───────────────────────────────────────────────────────────
 
 def format_alert_text(token_address: str, score: int, level: str,
-                       factors: Dict[str, bool], agent_id: str = "gentech_agent_v1") -> str:
+                       factors: Dict[str, bool], agent_id: str = "rugcheck_v2") -> str:
     """Format a human-readable alert message."""
     risk_flags = [k for k, v in factors.items() if v and k != "is_open_source"]
     if not factors.get("is_open_source", False):
@@ -39,7 +39,7 @@ def format_alert_text(token_address: str, score: int, level: str,
     flag_str = ", ".join(risk_flags) if risk_flags else "none"
 
     return (
-        f"{emoji} AGENT CATCHER ALERT — {level}\n"
+        f"{emoji} RUGCHECK ALERT — {level}\n"
         f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
         f"Token:  {token_address}\n"
         f"Score:  {score}/100\n"
@@ -51,7 +51,7 @@ def format_alert_text(token_address: str, score: int, level: str,
 
 
 def format_alert_json(token_address: str, score: int, level: str,
-                       factors: Dict[str, bool], agent_id: str = "gentech_agent_v1") -> Dict:
+                       factors: Dict[str, bool], agent_id: str = "rugcheck_v2") -> Dict:
     """Format alert as structured JSON payload."""
     risk_flags = [k for k, v in factors.items() if v and k != "is_open_source"]
     if not factors.get("is_open_source", False):
@@ -179,7 +179,7 @@ class AlertDispatcher:
         return level in self.alert_levels
 
     def send(self, token_address: str, score: int, level: str,
-             factors: Dict[str, bool], agent_id: str = "gentech_agent_v1",
+             factors: Dict[str, bool], agent_id: str = "rugcheck_v2",
              force: bool = False) -> List[Dict]:
         """
         Dispatch alert through all channels.

@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rugcheck — Bags.fm Token Risk Agent</title>
+<style>
+  /* ── Reset & Base ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html { font-size: 14px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji';
+    background: #0d1117;
+    color: #e6edf3;
+    min-height: 100vh;
+    line-height: 1.5;
+  }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: #0d1117; }
+  ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+
+  /* ── Container ── */
+  .container { max-width: 1200px; margin: 0 auto; padding: 16px; }
+
+  /* ── Header ── */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 20px 0 16px;
+    border-bottom: 1px solid #21262d;
+    margin-bottom: 20px;
+  }
+  .header-logo {
+    width: 44px; height: 44px;
+    background: linear-gradient(135deg, #f7931a 0%, #e6a817 100%);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px; font-weight: 800; color: #0d1117;
+    flex-shrink: 0;
+  }
+  .header-text h1 {
+    font-size: 1.6rem; font-weight: 700; color: #f0f6fc;
+    letter-spacing: -0.5px;
+  }
+  .header-text h1 span { color: #f7931a; }
+  .header-text p {
+    font-size: 0.85rem; color: #8b949e; margin-top: 2px;
+  }
+  .header-status {
+    margin-left: auto;
+    display: flex; align-items: center; gap: 8px;
+    font-size: 0.8rem; color: #8b949e;
+  }
+  .pulse-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #3fb950;
+    animation: pulse 2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(63,185,80,0.5); }
+    50% { opacity: 0.7; box-shadow: 0 0 0 6px rgba(63,185,80,0); }
+  }
+
+  /* ── Stats Bar ── */
+  .stats-bar {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+  .stat-card {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+    transition: all 0.2s ease;
+  }
+  .stat-card:hover { transform: translateY(-2px); }
+  .stat-card.total { border-top: 2px solid #58a6ff; box-shadow: 0 2px 12px rgba(88,166,255,0.12); }
+  .stat-card.safe { border-top: 2px solid #3fb950; box-shadow: 0 2px 12px rgba(63,185,80,0.12); }
+  .stat-card.risky { border-top: 2px solid #d29922; box-shadow: 0 2px 12px rgba(210,153,34,0.12); }
+  .stat-card.critical { border-top: 2px solid #f85149; box-shadow: 0 2px 12px rgba(248,81,73,0.12); }
+  .stat-card .stat-label {
+    font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.5px;
+    color: #8b949e; margin-bottom: 6px;
+  }
+  .stat-card .stat-value {
+    font-size: 1.8rem; font-weight: 700; color: #f0f6fc;
+    line-height: 1;
+  }
+  .stat-card.safe .stat-value { color: #3fb950; }
+  .stat-card.risky .stat-value { color: #d29922; }
+  .stat-card.critical .stat-value { color: #f85149; }
+  .stat-card.total .stat-value { color: #58a6ff; }
+
+  /* ── Feed ── */
+  .feed-section {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .feed-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid #21262d;
+  }
+  .feed-header h2 {
+    font-size: 1rem; font-weight: 600; color: #f0f6fc;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .feed-header h2 .count-badge {
+    background: #30363d; color: #8b949e;
+    font-size: 0.7rem; padding: 2px 7px; border-radius: 10px;
+    font-weight: 500;
+  }
+  .feed-header .last-scan {
+    font-size: 0.75rem; color: #8b949e;
+  }
+
+  /* ── Table ── */
+  .table-wrap { overflow-x: auto; }
+  table {
+    width: 100%; border-collapse: collapse;
+    font-size: 0.85rem;
+  }
+  thead th {
+    padding: 10px 14px;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #8b949e;
+    background: #0d1117;
+    border-bottom: 1px solid #21262d;
+    position: sticky; top: 0; z-index: 2;
+  }
+  tbody { max-height: 60vh; overflow-y: auto; display: block; }
+  tbody tr {
+    display: table; width: 100%; table-layout: fixed;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  tbody tr:hover { background: #1c2129; }
+  tbody td {
+    padding: 12px 14px;
+    border-bottom: 1px solid #21262d;
+    vertical-align: middle;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* Column widths */
+  col.c-name   { width: 18%; }
+  col.c-mint   { width: 16%; }
+  col.c-score  { width: 8%; }
+  col.c-level  { width: 10%; }
+  col.c-factors { width: 20%; }
+  col.c-holders { width: 8%; }
+  col.c-liq    { width: 10%; }
+  col.c-time   { width: 10%; }
+
+  /* Token name cell */
+  .token-name {
+    display: flex; align-items: center; gap: 8px;
+  }
+  .token-icon {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; color: #0d1117;
+    flex-shrink: 0;
+  }
+  .token-icon.safe-icon { background: linear-gradient(135deg, #3fb950, #2ea043); }
+  .token-icon.medium-icon { background: linear-gradient(135deg, #d29922, #b08800); }
+  .token-icon.risky-icon { background: linear-gradient(135deg, #db6d28, #c45600); }
+  .token-icon.critical-icon { background: linear-gradient(135deg, #f85149, #da3633); }
+  .token-name-text .token-sym {
+    display: block; font-size: 0.7rem; color: #8b949e;
+  }
+
+  /* Score badge */
+  .score-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 0.8rem;
+    min-width: 44px; text-align: center;
+  }
+  .score-badge.score-high { background: rgba(63,185,80,0.15); color: #3fb950; }
+  .score-badge.score-mid  { background: rgba(210,153,34,0.15); color: #d29922; }
+  .score-badge.score-low  { background: rgba(219,109,40,0.15); color: #db6d28; }
+  .score-badge.score-crit { background: rgba(248,81,73,0.15); color: #f85149; }
+
+  /* Level badge */
+  .level-badge {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-weight: 600;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .level-badge.lvl-low { background: rgba(63,185,80,0.12); color: #3fb950; }
+  .level-badge.lvl-medium { background: rgba(210,153,34,0.12); color: #d29922; }
+  .level-badge.lvl-high { background: rgba(219,109,40,0.12); color: #db6d28; }
+  .level-badge.lvl-critical { background: rgba(248,81,73,0.12); color: #f85149; }
+
+  .mint-addr {
+    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+    font-size: 0.78rem; color: #8b949e;
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis;
+  }
+  .num-cell { font-variant-numeric: tabular-nums; }
+  .time-cell { font-size: 0.78rem; color: #8b949e; }
+
+  /* ── Factor tags in table ── */
+  .factor-tags {
+    display: flex; flex-wrap: wrap; gap: 3px;
+    max-width: 200px;
+  }
+  .factor-tag {
+    display: inline-block;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-size: 0.62rem;
+    font-weight: 500;
+    letter-spacing: 0.2px;
+    white-space: nowrap;
+  }
+  .factor-tag.f-good { background: rgba(63,185,80,0.12); color: #3fb950; }
+  .factor-tag.f-bad  { background: rgba(248,81,73,0.12); color: #f85149; }
+
+  /* ── Modal ── */
+  .modal-overlay {
+    display: none;
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.65);
+    backdrop-filter: blur(4px);
+    z-index: 100;
+    align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .modal-overlay.active { display: flex; }
+  .modal {
+    background: #161b22;
+    border: 1px solid #30363d;
+    border-radius: 12px;
+    width: 100%; max-width: 640px;
+    max-height: 85vh; overflow-y: auto;
+    box-shadow: 0 16px 48px rgba(0,0,0,0.4);
+    animation: modalIn 0.2s ease;
+  }
+  @keyframes modalIn {
+    from { opacity: 0; transform: scale(0.95) translateY(10px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+  }
+  .modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 24px;
+    border-bottom: 1px solid #21262d;
+  }
+  .modal-header h3 {
+    font-size: 1.15rem; font-weight: 700; color: #f0f6fc;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .modal-close {
+    background: none; border: 1px solid #30363d; border-radius: 6px;
+    color: #8b949e; cursor: pointer; padding: 6px 10px;
+    font-size: 1rem; transition: all 0.15s ease;
+  }
+  .modal-close:hover { background: #21262d; color: #f0f6fc; border-color: #484f58; }
+  .modal-body { padding: 20px 24px; }
+  .modal-section { margin-bottom: 20px; }
+  .modal-section h4 {
+    font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.5px;
+    color: #8b949e; margin-bottom: 10px; font-weight: 600;
+  }
+  .modal-meta-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+  }
+  .meta-item {
+    background: #0d1117; border: 1px solid #21262d; border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .meta-item .meta-label {
+    font-size: 0.7rem; color: #8b949e; text-transform: uppercase;
+    letter-spacing: 0.3px; margin-bottom: 4px;
+  }
+  .meta-item .meta-value {
+    font-size: 0.95rem; font-weight: 600; color: #f0f6fc;
+    font-variant-numeric: tabular-nums;
+  }
+  .meta-item .meta-value.mono {
+    font-family: 'SFMono-Regular', Consolas, monospace;
+    font-size: 0.8rem; word-break: break-all;
+  }
+
+  /* Score breakdown in modal */
+  .score-breakdown {
+    display: flex; align-items: center; gap: 16px;
+    background: #0d1117; border: 1px solid #21262d;
+    border-radius: 8px; padding: 16px;
+  }
+  .score-circle {
+    width: 72px; height: 72px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5rem; font-weight: 800; flex-shrink: 0;
+  }
+  .score-circle.sc-green  { background: rgba(63,185,80,0.15); color: #3fb950; border: 2px solid #3fb950; }
+  .score-circle.sc-yellow { background: rgba(210,153,34,0.15); color: #d29922; border: 2px solid #d29922; }
+  .score-circle.sc-orange { background: rgba(219,109,40,0.15); color: #db6d28; border: 2px solid #db6d28; }
+  .score-circle.sc-red    { background: rgba(248,81,73,0.15); color: #f85149; border: 2px solid #f85149; }
+  .score-info .score-label-big {
+    font-size: 0.9rem; font-weight: 600; color: #f0f6fc;
+  }
+  .score-info .score-desc {
+    font-size: 0.8rem; color: #8b949e; margin-top: 2px;
+  }
+
+  /* Risk factors list in modal */
+  .factors-list {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  }
+  .factor-item {
+    display: flex; align-items: center; gap: 8px;
+    background: #0d1117; border: 1px solid #21262d;
+    border-radius: 6px; padding: 10px 12px;
+    font-size: 0.8rem;
+  }
+  .factor-icon { font-size: 0.9rem; flex-shrink: 0; }
+  .factor-icon.fi-pass { color: #3fb950; }
+  .factor-icon.fi-fail { color: #f85149; }
+  .factor-label { color: #c9d1d9; }
+  .factor-label small { color: #8b949e; font-size: 0.7rem; display: block; }
+
+  /* ── Empty / Loading state ── */
+  .feed-empty {
+    padding: 48px 20px; text-align: center; color: #8b949e;
+  }
+  .feed-empty .spinner {
+    width: 32px; height: 32px; border: 3px solid #30363d;
+    border-top-color: #58a6ff; border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 12px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Animations ── */
+  .fade-in {
+    animation: fadeIn 0.3s ease;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Footer ── */
+  .footer {
+    text-align: center; padding: 20px 0 12px;
+    font-size: 0.72rem; color: #484f58;
+  }
+  .footer a { color: #58a6ff; text-decoration: none; }
+
+  /* ── Mobile ── */
+  @media (max-width: 900px) {
+    .stats-bar { grid-template-columns: repeat(2, 1fr); }
+    .modal-meta-grid { grid-template-columns: 1fr; }
+    .factors-list { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 600px) {
+    .stats-bar { grid-template-columns: 1fr 1fr; gap: 8px; }
+    .header { flex-wrap: wrap; }
+    .header-status { margin-left: 0; width: 100%; justify-content: center; padding-top: 8px; }
+    .stat-card { padding: 12px; }
+    .stat-card .stat-value { font-size: 1.4rem; }
+    table { font-size: 0.78rem; }
+    thead th, tbody td { padding: 8px 8px; }
+    .factor-tags { display: none; }
+    col.c-liq, col.c-holders, col.c-factors { display: none; }
+    td:nth-child(5), td:nth-child(6), td:nth-child(7) { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <!-- Header -->
+  <div class="header">
+    <div class="header-logo">R</div>
+    <div class="header-text">
+      <h1>Rug<span>check</span></h1>
+      <p>AI Agent Monitoring Bags.fm Launches</p>
+    </div>
+    <div class="header-status">
+      <div class="pulse-dot" id="statusDot"></div>
+      <span id="statusText">Live</span>
+    </div>
+  </div>
+
+  <!-- Stats Bar -->
+  <div class="stats-bar">
+    <div class="stat-card total">
+      <div class="stat-label">Total Scanned</div>
+      <div class="stat-value" id="statTotal">—</div>
+    </div>
+    <div class="stat-card safe">
+      <div class="stat-label">🟢 Safe</div>
+      <div class="stat-value" id="statSafe">—</div>
+    </div>
+    <div class="stat-card risky">
+      <div class="stat-label">🟠 Risky</div>
+      <div class="stat-value" id="statRisky">—</div>
+    </div>
+    <div class="stat-card critical">
+      <div class="stat-label">🔴 Critical</div>
+      <div class="stat-value" id="statCritical">—</div>
+    </div>
+  </div>
+
+  <!-- Live Feed -->
+  <div class="feed-section">
+    <div class="feed-header">
+      <h2>
+        Live Token Feed
+        <span class="count-badge" id="feedCount">0</span>
+      </h2>
+      <span class="last-scan" id="lastScanText">Loading...</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <colgroup>
+          <col class="c-name">
+          <col class="c-mint">
+          <col class="c-score">
+          <col class="c-level">
+          <col class="c-factors">
+          <col class="c-holders">
+          <col class="c-liq">
+          <col class="c-time">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>Token</th>
+            <th>Mint Address</th>
+            <th>Score</th>
+            <th>Level</th>
+            <th>Risk Factors</th>
+            <th>Holders</th>
+            <th>Liquidity</th>
+            <th>Scanned</th>
+          </tr>
+        </thead>
+        <tbody id="feedBody">
+          <tr><td colspan="7">
+            <div class="feed-empty">
+              <div class="spinner"></div>
+              Loading token data...
+            </div>
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="footer">
+    Rugcheck v2 — Bags.fm Hackathon • Powered by AI Risk Analysis •
+    <a href="#">GitHub</a>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" id="modal">
+    <div class="modal-header">
+      <h3 id="modalTitle">Token Details</h3>
+      <button class="modal-close" id="modalClose">&times;</button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+</div>
+
+<script>
+// ─── Factor definitions ───
+const FACTOR_DEFS = {
+  has_mint_authority:         { label: 'Mint Authority',       desc: 'Can create new tokens',     inverted: false },
+  has_freeze_authority:       { label: 'Freeze Authority',     desc: 'Can freeze accounts',       inverted: false },
+  lp_locked:                  { label: 'LP Locked',            desc: 'Liquidity pool locked',     inverted: true  },
+  top_holder_concentration:   { label: 'Top Holder Risk',      desc: 'Whale concentration high',  inverted: false },
+  is_open_source:             { label: 'Open Source',          desc: 'Contract is verified',      inverted: true  },
+  has_social:                 { label: 'Social Presence',      desc: 'Has social media links',    inverted: true  },
+  creator_history:            { label: 'Creator History',      desc: 'Known good creator',        inverted: true  },
+  liquidity_depth:            { label: 'Liquidity Depth',      desc: 'Adequate liquidity',        inverted: true  },
+  trading_volume:             { label: 'Trading Volume',       desc: 'Active trading present',    inverted: true  },
+  rug_history:                { label: 'Rug History',          desc: 'Prior rug pull activity',   inverted: false }
+};
+
+// ─── Mock data ───
+function generateMockData() {
+  return {
+    last_scan: new Date().toISOString(),
+    total_scanned: 42,
+    tokens: [
+      {
+        mint: "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
+        name: "SafeCoin", symbol: "SAFE", score: 92, level: "LOW",
+        factors: {
+          has_mint_authority: false, has_freeze_authority: false, lp_locked: true,
+          top_holder_concentration: false, is_open_source: true, has_social: true,
+          creator_history: true, liquidity_depth: true, trading_volume: true, rug_history: false
+        },
+        creator: "5Q544fKrFoe6tsEbD7S8EmxGTJYAKtTVhAW5Q5pge4j1",
+        created_at: "2026-05-23T11:55:00Z", scanned_at: "2026-05-23T12:00:00Z",
+        supply: 1000000000, holders: 1250, liquidity_usd: 50000
+      },
+      {
+        mint: "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+        name: "MoonShot", symbol: "MOON", score: 65, level: "MEDIUM",
+        factors: {
+          has_mint_authority: false, has_freeze_authority: false, lp_locked: true,
+          top_holder_concentration: false, is_open_source: true, has_social: false,
+          creator_history: false, liquidity_depth: true, trading_volume: true, rug_history: false
+        },
+        creator: "8KxVv3mPQzRfNcDeL2tH7gYj4sB5aF6dG9hW1xK3mN7p",
+        created_at: "2026-05-23T11:50:00Z", scanned_at: "2026-05-23T11:55:00Z",
+        supply: 500000000, holders: 340, liquidity_usd: 15000
+      },
+      {
+        mint: "9RgF3kPq7LmN2wXsYv5TdHjBc1aE6fG4hJ8kM3nQ9rT",
+        name: "RugPull Token", symbol: "RUG", score: 18, level: "CRITICAL",
+        factors: {
+          has_mint_authority: true, has_freeze_authority: true, lp_locked: false,
+          top_holder_concentration: true, is_open_source: false, has_social: false,
+          creator_history: false, liquidity_depth: false, trading_volume: false, rug_history: true
+        },
+        creator: "2A3bC4dE5fG6hI7jK8lM9nO0pQ1rS2tU3vW4xY5zA",
+        created_at: "2026-05-23T11:58:00Z", scanned_at: "2026-05-23T12:01:00Z",
+        supply: 99999999999, holders: 12, liquidity_usd: 50
+      },
+      {
+        mint: "4Bn7cR2qXwLpM8kTf3gVdHsJ1aE5yG9hN6mQ0rS2wU",
+        name: "Diamond Hands", symbol: "DIAM", score: 78, level: "MEDIUM",
+        factors: {
+          has_mint_authority: false, has_freeze_authority: false, lp_locked: true,
+          top_holder_concentration: false, is_open_source: true, has_social: true,
+          creator_history: true, liquidity_depth: true, trading_volume: false, rug_history: false
+        },
+        creator: "6F7gH8jK9lM0nO1pQ2rS3tU4vW5xY6zA7bC8dE9fG",
+        created_at: "2026-05-23T11:45:00Z", scanned_at: "2026-05-23T11:50:00Z",
+        supply: 750000000, holders: 890, liquidity_usd: 35000
+      },
+      {
+        mint: "1ScAmCoIn2026xYzAbCdEfGhIjKlMnOpQrStUvWxYz",
+        name: "ScamCoin", symbol: "SCAM", score: 8, level: "CRITICAL",
+        factors: {
+          has_mint_authority: true, has_freeze_authority: true, lp_locked: false,
+          top_holder_concentration: true, is_open_source: false, has_social: false,
+          creator_history: false, liquidity_depth: false, trading_volume: false, rug_history: true
+        },
+        creator: "1ScAm1111111111111111111111111111111111111",
+        created_at: "2026-05-23T11:59:00Z", scanned_at: "2026-05-23T12:02:00Z",
+        supply: 100000000000, holders: 5, liquidity_usd: 10
+      },
+      {
+        mint: "6NewL4unCh2026Tkn1a2b3c4d5e6f7g8h9i0j1k2l3",
+        name: "NewLaunch", symbol: "NEW", score: 55, level: "HIGH",
+        factors: {
+          has_mint_authority: false, has_freeze_authority: false, lp_locked: false,
+          top_holder_concentration: false, is_open_source: false, has_social: false,
+          creator_history: false, liquidity_depth: false, trading_volume: false, rug_history: false
+        },
+        creator: "3N3wL4uNcH2026Tkn1a2b3c4d5e6f7g8h9i0j1k2",
+        created_at: "2026-05-23T12:00:00Z", scanned_at: "2026-05-23T12:03:00Z",
+        supply: 10000000, holders: 8, liquidity_usd: 200
+      }
+    ]
+  };
+}
+
+// ─── Helpers ───
+function truncateAddress(addr, chars) {
+  chars = chars || 6;
+  if (!addr) return '—';
+  if (addr.length <= chars * 2 + 3) return addr;
+  return addr.slice(0, chars) + '…' + addr.slice(-chars);
+}
+
+function scoreClass(score) {
+  if (score >= 80) return 'score-high';
+  if (score >= 60) return 'score-mid';
+  if (score >= 40) return 'score-low';
+  return 'score-crit';
+}
+
+function scoreCircleClass(score) {
+  if (score >= 80) return 'sc-green';
+  if (score >= 60) return 'sc-yellow';
+  if (score >= 40) return 'sc-orange';
+  return 'sc-red';
+}
+
+function levelClass(level) {
+  switch (level) {
+    case 'LOW':      return 'lvl-low';
+    case 'MEDIUM':   return 'lvl-medium';
+    case 'HIGH':     return 'lvl-high';
+    case 'CRITICAL': return 'lvl-critical';
+    default:         return 'lvl-medium';
+  }
+}
+
+function iconClass(level) {
+  switch (level) {
+    case 'LOW':      return 'safe-icon';
+    case 'MEDIUM':   return 'medium-icon';
+    case 'HIGH':     return 'risky-icon';
+    case 'CRITICAL': return 'critical-icon';
+    default:         return 'medium-icon';
+  }
+}
+
+function iconLetter(symbol) {
+  return (symbol || '?')[0];
+}
+
+function formatNumber(n) {
+  if (n == null) return '—';
+  if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+  if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+  return n.toLocaleString();
+}
+
+function timeAgo(isoStr) {
+  const now = new Date();
+  const d = new Date(isoStr);
+  const diff = Math.floor((now - d) / 1000);
+  if (diff < 5) return 'just now';
+  if (diff < 60) return diff + 's ago';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return Math.floor(diff / 86400) + 'd ago';
+}
+
+function formatTime(isoStr) {
+  if (!isoStr) return '—';
+  const d = new Date(isoStr);
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+function scoreDesc(score) {
+  if (score >= 80) return 'Low risk — appears safe to trade';
+  if (score >= 60) return 'Moderate risk — exercise caution';
+  if (score >= 40) return 'High risk — significant concerns detected';
+  return 'Critical risk — likely malicious token';
+}
+
+function factorIsGood(key, value) {
+  const def = FACTOR_DEFS[key];
+  if (!def) return !value;
+  if (def.inverted) return value === true;
+  return value === false;
+}
+
+function factorLabel(key) {
+  return FACTOR_DEFS[key] ? FACTOR_DEFS[key].label : key;
+}
+function factorDesc(key) {
+  return FACTOR_DEFS[key] ? FACTOR_DEFS[key].desc : '';
+}
+
+// ─── Render ───
+let currentData = null;
+
+function renderStats(data) {
+  const tokens = data.tokens || [];
+  document.getElementById('statTotal').textContent = data.total_scanned || tokens.length;
+  let safe = 0, risky = 0, critical = 0;
+  tokens.forEach(t => {
+    if (t.level === 'LOW') safe++;
+    else if (t.level === 'MEDIUM') risky++;
+    else critical++;
+  });
+  document.getElementById('statSafe').textContent = safe;
+  document.getElementById('statRisky').textContent = risky;
+  document.getElementById('statCritical').textContent = critical;
+  document.getElementById('feedCount').textContent = tokens.length;
+  document.getElementById('lastScanText').textContent =
+    'Last scan: ' + formatTime(data.last_scan);
+}
+
+function buildFactorTags(factors) {
+  const tags = [];
+  for (const [key, val] of Object.entries(factors)) {
+    const good = factorIsGood(key, val);
+    tags.push(`<span class="factor-tag ${good ? 'f-good' : 'f-bad'}">${factorLabel(key)}</span>`);
+  }
+  return tags.join('');
+}
+
+function renderFeed(tokens) {
+  const tbody = document.getElementById('feedBody');
+  if (!tokens || tokens.length === 0) {
+    tbody.innerHTML = `<tr><td colspan="8"><div class="feed-empty">No tokens scanned yet. Waiting for data...</div></td></tr>`;
+    return;
+  }
+  const sorted = [...tokens].sort((a, b) => new Date(b.scanned_at) - new Date(a.scanned_at));
+  tbody.innerHTML = sorted.map((t, i) => `
+    <tr class="fade-in" style="animation-delay:${i * 30}ms" onclick="openModal(${JSON.stringify(t).replace(/"/g, '&quot;')})">
+      <td>
+        <div class="token-name">
+          <div class="token-icon ${iconClass(t.level)}">${iconLetter(t.symbol)}</div>
+          <div class="token-name-text">
+            <span style="font-weight:600;color:#f0f6fc">${t.name}</span>
+            <span class="token-sym">${t.symbol}</span>
+          </div>
+        </div>
+      </td>
+      <td><span class="mint-addr" title="${t.mint}">${truncateAddress(t.mint)}</span></td>
+      <td><span class="score-badge ${scoreClass(t.score)}">${t.score}</span></td>
+      <td><span class="level-badge ${levelClass(t.level)}">${t.level}</span></td>
+      <td><div class="factor-tags">${buildFactorTags(t.factors)}</div></td>
+      <td class="num-cell">${formatNumber(t.holders)}</td>
+      <td class="num-cell">$${formatNumber(t.liquidity_usd)}</td>
+      <td class="time-cell">${timeAgo(t.scanned_at)}</td>
+    </tr>`).join('');
+}
+
+function render() {
+  if (!currentData) return;
+  renderStats(currentData);
+  renderFeed(currentData.tokens);
+}
+
+// ─── Modal ───
+function openModal(token) {
+  const overlay = document.getElementById('modalOverlay');
+  document.getElementById('modalTitle').innerHTML =
+    `<span class="token-icon ${iconClass(token.level)}" style="width:32px;height:32px;font-size:14px">${iconLetter(token.symbol)}</span> ${token.name} (${token.symbol})`;
+
+  let html = '';
+
+  // Score breakdown
+  html += `
+    <div class="modal-section">
+      <h4>Risk Score</h4>
+      <div class="score-breakdown">
+        <div class="score-circle ${scoreCircleClass(token.score)}">${token.score}</div>
+        <div class="score-info">
+          <div class="score-label-big">${token.level} Risk</div>
+          <div class="score-desc">${scoreDesc(token.score)}</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Metadata
+  html += `
+    <div class="modal-section">
+      <h4>Token Metadata</h4>
+      <div class="modal-meta-grid">
+        <div class="meta-item">
+          <div class="meta-label">Mint Address</div>
+          <div class="meta-value mono">${token.mint}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Creator</div>
+          <div class="meta-value mono">${token.creator || '—'}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Supply</div>
+          <div class="meta-value">${formatNumber(token.supply)}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Holders</div>
+          <div class="meta-value">${formatNumber(token.holders)}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Liquidity (USD)</div>
+          <div class="meta-value">$${formatNumber(token.liquidity_usd)}</div>
+        </div>
+        <div class="meta-item">
+          <div class="meta-label">Scanned At</div>
+          <div class="meta-value">${formatTime(token.scanned_at)}</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Risk factors
+  html += `<div class="modal-section"><h4>Risk Factors</h4><div class="factors-list">`;
+  for (const [key, val] of Object.entries(token.factors)) {
+    const good = factorIsGood(key, val);
+    html += `
+      <div class="factor-item">
+        <span class="factor-icon ${good ? 'fi-pass' : 'fi-fail'}">${good ? '✅' : '❌'}</span>
+        <span class="factor-label">
+          ${factorLabel(key)}
+          <small>${factorDesc(key)} — ${val ? 'Detected' : 'Not detected'}</small>
+        </span>
+      </div>
+    `;
+  }
+  html += `</div></div>`;
+
+  document.getElementById('modalBody').innerHTML = html;
+  overlay.classList.add('active');
+}
+
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('active');
+}
+
+document.getElementById('modalClose').addEventListener('click', closeModal);
+document.getElementById('modalOverlay').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') closeModal();
+});
+
+// ─── Data Loading ───
+async function loadData() {
+  try {
+    const resp = await fetch('scan_data.json?t=' + Date.now());
+    if (!resp.ok) throw new Error('No data file');
+    const data = await resp.json();
+    currentData = data;
+    render();
+  } catch (e) {
+    if (!currentData) {
+      currentData = generateMockData();
+      render();
+    }
+  }
+}
+
+// ─── Init ───
+loadData();
+setInterval(loadData, 10000);
+</script>
+
+</body>
+</html>

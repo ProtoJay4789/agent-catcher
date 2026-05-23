@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """
-Shared pytest fixtures for Agent Catcher tests.
+Shared pytest fixtures for Rugcheck v2 tests.
 
 Provides:
-  - Mock token data for all risk scenarios
-  - Pre-built factor sets
+  - Mock Solana token data for all risk scenarios
+  - Pre-built factor sets for the new Solana-specific risk model
   - Alert dispatcher fixtures
-  - Mock GoPlus responses
+  - Mock Bags.fm client fixtures
 """
 
 import pytest
@@ -16,95 +16,98 @@ import os
 # Ensure agent/ is importable
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from monitor import RISK_WEIGHTS, RISK_THRESHOLDS
+from scorer import RISK_WEIGHTS, RISK_THRESHOLDS
 
 
-# ─── Token Address Fixtures ───────────────────────────────────────────────────
-
-@pytest.fixture
-def safe_token_address():
-    return "0x2::sui::SUI"
+# ─── Token Mint Address Fixtures ─────────────────────────────────────────────
 
 @pytest.fixture
-def dangerous_token_address():
-    return "0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+def safe_token_mint():
+    return "So11111111111111111111111111111111111111112"
 
 @pytest.fixture
-def random_token_address():
-    return "0xtoken_abc123_test"
+def dangerous_token_mint():
+    return "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr"
+
+@pytest.fixture
+def random_token_mint():
+    return "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
 
 
-# ─── Raw GoPlus Data Fixtures ─────────────────────────────────────────────────
+# ─── Raw Token Info Fixtures (Solana-native) ─────────────────────────────────
 
 @pytest.fixture
 def raw_safe():
-    """All-clear GoPlus data — no risk flags."""
+    """All-clear Solana token data — no risk flags."""
     return {
-        "is_honeypot": "0",
-        "is_open_source": "1",
-        "owner_change_balance": "0",
-        "can_take_back_liquidity": "0",
-        "hidden_owner": "0",
-        "selfdestruct": "0",
-        "external_call": "0",
-        "is_proxy": "0",
-        "malicious_behavior": "0",
-        "slippage_modifiable": "0",
-        "is_blacklisted": "0",
-        "token_name": "SafeToken",
-        "token_symbol": "SAFE",
-        "holder_count": "12500",
-        "total_supply": "1000000000",
-        "owner_address": "0x0000000000000000000000000000000000000000",
+        "mint": "So11111111111111111111111111111111111111112",
+        "name": "SafeToken",
+        "symbol": "SAFE",
+        "supply": 1_000_000_000,
+        "decimals": 9,
+        "holders": 12_500,
+        "creator": "11111111111111111111111111111111",
+        "creation_time": 1700000000,
+        "has_mint_authority": False,
+        "has_freeze_authority": False,
+        "lp_locked": True,
+        "top_holder_pct": 0.05,
+        "is_open_source": True,
+        "has_social": True,
+        "creator_rug_count": 0,
+        "liquidity_usd": 500_000,
+        "volume_24h": 1_200_000,
     }
 
 @pytest.fixture
 def raw_dangerous():
-    """Every risk flag is set — honeypot, hidden owner, self-destruct, etc."""
+    """Every risk flag set — classic rug/honeypot setup."""
     return {
-        "is_honeypot": "1",
-        "is_open_source": "0",
-        "owner_change_balance": "1",
-        "can_take_back_liquidity": "1",
-        "hidden_owner": "1",
-        "selfdestruct": "1",
-        "external_call": "1",
-        "is_proxy": "1",
-        "malicious_behavior": "1",
-        "slippage_modifiable": "1",
-        "is_blacklisted": "1",
-        "token_name": "ScamCoin",
-        "token_symbol": "SCAM",
-        "holder_count": "15",
-        "total_supply": "666000000",
-        "owner_address": "0x1234567890abcdef1234567890abcdef12345678",
+        "mint": "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr",
+        "name": "ScamCoin",
+        "symbol": "SCAM",
+        "supply": 666_000_000,
+        "decimals": 9,
+        "holders": 15,
+        "creator": "9WzDXwBbmkg8ZTbNMqUxvQRAyrZzDsGYdLVL9zYtAWWM",
+        "creation_time": 1700000000,
+        "has_mint_authority": True,
+        "has_freeze_authority": True,
+        "lp_locked": False,
+        "top_holder_pct": 0.85,
+        "is_open_source": False,
+        "has_social": False,
+        "creator_rug_count": 3,
+        "liquidity_usd": 200,
+        "volume_24h": 50,
     }
 
 @pytest.fixture
 def raw_suspicious():
-    """Some risk flags — hidden owner, proxy, slippage modifiable."""
+    """Some risk flags — mint authority, no LP lock, new creator."""
     return {
-        "is_honeypot": "0",
-        "is_open_source": "0",
-        "owner_change_balance": "1",
-        "can_take_back_liquidity": "0",
-        "hidden_owner": "1",
-        "selfdestruct": "0",
-        "external_call": "1",
-        "is_proxy": "1",
-        "malicious_behavior": "0",
-        "slippage_modifiable": "1",
-        "is_blacklisted": "0",
-        "token_name": "SuspiciousToken",
-        "token_symbol": "SUSP",
-        "holder_count": "320",
-        "total_supply": "500000000",
-        "owner_address": "0xdeadbeefdeadbeefdeadbeefdeadbeef",
+        "mint": "DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263",
+        "name": "SuspiciousToken",
+        "symbol": "SUSP",
+        "supply": 500_000_000,
+        "decimals": 9,
+        "holders": 320,
+        "creator": "7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU",
+        "creation_time": 1700000000,
+        "has_mint_authority": True,
+        "has_freeze_authority": False,
+        "lp_locked": False,
+        "top_holder_pct": 0.35,
+        "is_open_source": False,
+        "has_social": True,
+        "creator_rug_count": 1,
+        "liquidity_usd": 15_000,
+        "volume_24h": 8_000,
     }
 
 @pytest.fixture
 def raw_empty():
-    """Empty GoPlus response — should default to safe-ish."""
+    """Empty response — should default to all-False factors."""
     return {}
 
 
@@ -112,37 +115,67 @@ def raw_empty():
 
 @pytest.fixture
 def factors_all_safe():
-    """All factors False, open source True — perfect score."""
-    f = {k: False for k in RISK_WEIGHTS}
-    f["is_open_source"] = True
-    return f
+    """All factors safe — perfect score."""
+    return {
+        "has_mint_authority": False,
+        "has_freeze_authority": False,
+        "lp_locked": True,
+        "top_holder_concentration": False,
+        "is_open_source": True,
+        "has_social": True,
+        "creator_history": False,
+        "liquidity_depth": False,
+        "trading_volume": False,
+        "rug_history": False,
+    }
 
 @pytest.fixture
 def factors_all_risky():
-    """All factors True (except open_source=False) — worst score."""
-    f = {k: True for k in RISK_WEIGHTS}
-    f["is_open_source"] = False
-    return f
+    """All factors risky — worst score."""
+    return {
+        "has_mint_authority": True,
+        "has_freeze_authority": True,
+        "lp_locked": False,
+        "top_holder_concentration": True,
+        "is_open_source": False,
+        "has_social": False,
+        "creator_history": True,
+        "liquidity_depth": True,
+        "trading_volume": True,
+        "rug_history": True,
+    }
 
 @pytest.fixture
 def factors_honeypot_only():
-    """Just honeypot flag — moderate penalty."""
-    f = {k: False for k in RISK_WEIGHTS}
-    f["is_open_source"] = True
-    f["is_honeypot"] = True
-    return f
+    """Just mint authority (honeypot-like) — moderate penalty."""
+    return {
+        "has_mint_authority": True,
+        "has_freeze_authority": False,
+        "lp_locked": True,
+        "top_holder_concentration": False,
+        "is_open_source": True,
+        "has_social": True,
+        "creator_history": False,
+        "liquidity_depth": False,
+        "trading_volume": False,
+        "rug_history": False,
+    }
 
 @pytest.fixture
 def factors_critical_combo():
-    """Honeypot + can_take_liquidity + hidden_owner + selfdestruct + malicious."""
-    f = {k: False for k in RISK_WEIGHTS}
-    f["is_open_source"] = False
-    f["is_honeypot"] = True
-    f["can_take_back_liquidity"] = True
-    f["hidden_owner"] = True
-    f["selfdestruct"] = True
-    f["malicious_behavior"] = True
-    return f
+    """Mint authority + freeze authority + no LP lock + high concentration + no social."""
+    return {
+        "has_mint_authority": True,
+        "has_freeze_authority": True,
+        "lp_locked": False,
+        "top_holder_concentration": True,
+        "is_open_source": False,
+        "has_social": False,
+        "creator_history": False,
+        "liquidity_depth": False,
+        "trading_volume": False,
+        "rug_history": False,
+    }
 
 
 # ─── Alert Fixtures ───────────────────────────────────────────────────────────
@@ -163,21 +196,20 @@ def alert_dispatcher_with_webhook():
 def sample_alert_payload():
     """Sample structured alert payload."""
     return {
-        "token_address": "0xdeadbeef",
+        "token_address": "7GCihgDB8fe6KNjn2MYtkzZcRjQy3t9GHdC8uHYmW2hr",
         "score": 25,
         "level": "CRITICAL",
         "factors": {
-            "is_honeypot": True,
+            "has_mint_authority": True,
+            "has_freeze_authority": True,
+            "lp_locked": False,
+            "top_holder_concentration": True,
             "is_open_source": False,
-            "owner_change_balance": True,
-            "can_take_back_liquidity": True,
-            "hidden_owner": True,
-            "selfdestruct": False,
-            "external_call": False,
-            "is_proxy": False,
-            "malicious_behavior": True,
-            "slippage_modifiable": False,
-            "is_blacklisted": False,
+            "has_social": False,
+            "creator_history": True,
+            "liquidity_depth": True,
+            "trading_volume": False,
+            "rug_history": True,
         },
-        "agent_id": "gentech_agent_v1",
+        "agent_id": "rugcheck_v2",
     }
