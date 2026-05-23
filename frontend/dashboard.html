@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🛡️ Rugcheck — Bags Token Scanner</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0f;
+            color: #e0e0e0;
+            min-height: 100vh;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            border-bottom: 1px solid #2a2a4a;
+            padding: 20px 40px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header h1 {
+            font-size: 24px;
+            color: #fff;
+        }
+        
+        .header h1 span {
+            color: #4ade80;
+        }
+        
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            color: #888;
+        }
+        
+        .status .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #4ade80;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        
+        .stat-card {
+            background: #1a1a2e;
+            border: 1px solid #2a2a4a;
+            border-radius: 12px;
+            padding: 20px;
+        }
+        
+        .stat-card .label {
+            font-size: 12px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .stat-card .value {
+            font-size: 32px;
+            font-weight: 700;
+            margin-top: 8px;
+        }
+        
+        .stat-card .value.green { color: #4ade80; }
+        .stat-card .value.yellow { color: #fbbf24; }
+        .stat-card .value.orange { color: #f97316; }
+        .stat-card .value.red { color: #ef4444; }
+        
+        .feed {
+            background: #1a1a2e;
+            border: 1px solid #2a2a4a;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        
+        .feed-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid #2a2a4a;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .feed-header h2 {
+            font-size: 16px;
+            color: #fff;
+        }
+        
+        .feed-header .filter {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .feed-header .filter button {
+            background: #2a2a4a;
+            border: none;
+            color: #888;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .feed-header .filter button:hover,
+        .feed-header .filter button.active {
+            background: #4ade80;
+            color: #000;
+        }
+        
+        .token-row {
+            display: grid;
+            grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+            padding: 16px 20px;
+            border-bottom: 1px solid #1a1a2e;
+            transition: background 0.2s;
+            cursor: pointer;
+        }
+        
+        .token-row:hover {
+            background: #16213e;
+        }
+        
+        .token-row .token-info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        
+        .token-row .token-name {
+            font-weight: 600;
+            color: #fff;
+        }
+        
+        .token-row .token-mint {
+            font-size: 12px;
+            color: #666;
+            font-family: monospace;
+        }
+        
+        .token-row .score {
+            font-size: 18px;
+            font-weight: 700;
+        }
+        
+        .token-row .score.low { color: #4ade80; }
+        .token-row .score.medium { color: #fbbf24; }
+        .token-row .score.high { color: #f97316; }
+        .token-row .score.critical { color: #ef4444; }
+        
+        .token-row .level {
+            font-size: 12px;
+            padding: 4px 8px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            font-weight: 600;
+        }
+        
+        .token-row .level.low { background: #166534; color: #4ade80; }
+        .token-row .level.medium { background: #713f12; color: #fbbf24; }
+        .token-row .level.high { background: #7c2d12; color: #f97316; }
+        .token-row .level.critical { background: #7f1d1d; color: #ef4444; }
+        
+        .token-row .holders,
+        .token-row .lp {
+            font-size: 14px;
+            color: #888;
+        }
+        
+        .token-row .time {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .alert-banner {
+            background: linear-gradient(135deg, #7f1d1d 0%, #991b1b 100%);
+            border: 1px solid #dc2626;
+            border-radius: 12px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .alert-banner.show {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .alert-banner .icon {
+            font-size: 24px;
+        }
+        
+        .alert-banner .text {
+            font-size: 14px;
+            color: #fca5a5;
+        }
+        
+        .alert-banner .text strong {
+            color: #fff;
+        }
+        
+        @media (max-width: 768px) {
+            .stats { grid-template-columns: repeat(2, 1fr); }
+            .token-row { grid-template-columns: 2fr 1fr 1fr; }
+            .token-row .holders,
+            .token-row .lp,
+            .token-row .time { display: none; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🛡️ <span>Rugcheck</span> — Bags Token Scanner</h1>
+        <div class="status">
+            <div class="dot"></div>
+            <span id="status-text">Scanning...</span>
+        </div>
+    </div>
+    
+    <div class="container">
+        <div class="alert-banner" id="alert-banner">
+            <div class="icon">🚨</div>
+            <div class="text">
+                <strong>HIGH RISK TOKEN DETECTED:</strong>
+                <span id="alert-text">Loading...</span>
+            </div>
+        </div>
+        
+        <div class="stats">
+            <div class="stat-card">
+                <div class="label">Tokens Scanned</div>
+                <div class="value green" id="stat-scanned">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Low Risk</div>
+                <div class="value green" id="stat-low">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">Medium Risk</div>
+                <div class="value yellow" id="stat-medium">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="label">High/Critical</div>
+                <div class="value red" id="stat-high">0</div>
+            </div>
+        </div>
+        
+        <div class="feed">
+            <div class="feed-header">
+                <h2>Live Token Feed</h2>
+                <div class="filter">
+                    <button class="active" data-filter="all">All</button>
+                    <button data-filter="critical">🔴 Critical</button>
+                    <button data-filter="high">🟠 High</button>
+                    <button data-filter="medium">🟡 Medium</button>
+                    <button data-filter="low">🟢 Low</button>
+                </div>
+            </div>
+            <div id="token-feed">
+                <!-- Token rows will be inserted here -->
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Mock data for demo
+        const mockTokens = [
+            { name: "SafeToken", symbol: "SAFE", mint: "So1111...1111", score: 95, level: "low", holders: 12500, lp: "$250K", time: "2m ago" },
+            { name: "MoonShot", symbol: "MOON", mint: "0x2222...2222", score: 72, level: "medium", holders: 850, lp: "$45K", time: "5m ago" },
+            { name: "RugPull", symbol: "RUG", mint: "0x3333...3333", score: 28, level: "critical", holders: 15, lp: "$500", time: "8m ago" },
+            { name: "ScamCoin", symbol: "SCAM", mint: "0x4444...4444", score: 12, level: "critical", holders: 8, lp: "$120", time: "12m ago" },
+            { name: "HoneyPot", symbol: "HONE", mint: "0x5555...5555", score: 45, level: "high", holders: 320, lp: "$8.5K", time: "15m ago" },
+            { name: "DiamondHands", symbol: "DIAM", mint: "0x6666...6666", score: 88, level: "low", holders: 5200, lp: "$180K", time: "18m ago" },
+            { name: "PaperHands", symbol: "PAPER", mint: "0x7777...7777", score: 65, level: "medium", holders: 420, lp: "$22K", time: "22m ago" },
+            { name: "WhaleToken", symbol: "WHALE", mint: "0x8888...8888", score: 35, level: "high", holders: 85, lp: "$3.2K", time: "25m ago" },
+        ];
+        
+        let currentFilter = 'all';
+        
+        function updateStats() {
+            const scanned = mockTokens.length;
+            const low = mockTokens.filter(t => t.level === 'low').length;
+            const medium = mockTokens.filter(t => t.level === 'medium').length;
+            const high = mockTokens.filter(t => t.level === 'high' || t.level === 'critical').length;
+            
+            document.getElementById('stat-scanned').textContent = scanned;
+            document.getElementById('stat-low').textContent = low;
+            document.getElementById('stat-medium').textContent = medium;
+            document.getElementById('stat-high').textContent = high;
+        }
+        
+        function renderFeed() {
+            const feed = document.getElementById('token-feed');
+            const filtered = currentFilter === 'all' 
+                ? mockTokens 
+                : mockTokens.filter(t => t.level === currentFilter);
+            
+            feed.innerHTML = filtered.map(token => `
+                <div class="token-row" onclick="showAlert('${token.name}', '${token.symbol}', ${token.score}, '${token.level}')">
+                    <div class="token-info">
+                        <div class="token-name">${token.name} (${token.symbol})</div>
+                        <div class="token-mint">${token.mint}</div>
+                    </div>
+                    <div class="score ${token.level}">${token.score}/100</div>
+                    <div class="level ${token.level}">${token.level}</div>
+                    <div class="holders">${token.holders.toLocaleString()} holders</div>
+                    <div class="lp">${token.lp} LP</div>
+                </div>
+            `).join('');
+        }
+        
+        function showAlert(name, symbol, score, level) {
+            if (level === 'critical' || level === 'high') {
+                const banner = document.getElementById('alert-banner');
+                const text = document.getElementById('alert-text');
+                text.textContent = `${name} (${symbol}) scored ${score}/100 — DO NOT APE!`;
+                banner.classList.add('show');
+                setTimeout(() => banner.classList.remove('show'), 5000);
+            }
+        }
+        
+        // Filter buttons
+        document.querySelectorAll('.filter button').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.filter button').forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentFilter = btn.dataset.filter;
+                renderFeed();
+            });
+        });
+        
+        // Initial render
+        updateStats();
+        renderFeed();
+        
+        // Simulate live updates
+        setInterval(() => {
+            const statuses = ['Scanning...', 'Analyzing...', 'Monitoring...', 'Idle'];
+            document.getElementById('status-text').textContent = statuses[Math.floor(Math.random() * statuses.length)];
+        }, 3000);
+    </script>
+</body>
+</html>
